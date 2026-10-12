@@ -1,0 +1,30 @@
+{
+  "project_name": "Atmospheric Physics Course Study Notes",
+  "google_drive": {
+    "folder_name": "Atmospheric_Physics_Course",
+    "folder_id": "",
+    "auth_mode": "cli",
+    "local_sync_folder": ""
+  },
+  "local_paths": {
+    "docs_dir": "docs",
+    "web_dir": "web",
+    "pdf_dir": "pdf",
+    "progress_index": "docs/progress_index.json",
+    "log_file": "logs/sync.log"
+  },
+  "git": {
+    "auto_commit": true,
+    "auto_push": true,
+    "branch": "main",
+    "remote": "origin",
+    "commit_msg_template": "feat(study): auto-sync {title}"
+  },
+  "web": {
+    "generator": "vitepress",
+    "auto_build": false
+  },
+  "pdf": {
+    "export_pdf": true
+  }
+}

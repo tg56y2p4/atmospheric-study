@@ -1,0 +1,25 @@
+{
+  "name": "atmospheric-physics-course",
+  "version": "1.0.0",
+  "description": "南京信息工程大学《大气物理学》（银燕）全公式推导精讲讲义与自动同步系统",
+  "main": "index.js",
+  "scripts": {
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
+    "sync": "python scripts/sync_course.py"
+  },
+  "keywords": [
+    "atmospheric-physics",
+    "latex",
+    "meteorology",
+    "lecture-notes",
+    "gemini"
+  ],
+  "author": "Antigravity & Gemini Spark",
+  "license": "MIT",
+  "devDependencies": {
+    "markdown-it-mathjax3": "^4.3.2",
+    "vitepress": "^1.6.3"
+  }
+}

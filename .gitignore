@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+
+# Sensitive Credentials
+credentials.json
+service_account.json
+token.json
+client_secret*.json
+
+# Logs
+logs/*.log
+
+# Build Outputs
+web/.vitepress/dist/
+web/.vitepress/cache/
+dist/
+
+# System and Editor Files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
