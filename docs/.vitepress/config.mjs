@@ -67,7 +67,7 @@ export default defineConfig({
       '/': getDynamicSidebar()
     },
     socialLinks: [
-      { icon: 'github', link: 'https://github.com' }
+      { icon: 'github', link: 'https://github.com/tg56y2p4/atmospheric-study' }
     ],
     search: {
       provider: 'local'
