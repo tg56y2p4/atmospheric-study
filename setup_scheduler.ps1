@@ -35,7 +35,7 @@ if (-not (Test-Path $RunnerBat)) {
 }
 
 # Create or update daily scheduled task
-$cmd = "schtasks /create /tn `"$TaskName`" /tr `"\`"$RunnerBat\`"`" /sc daily /st $Time /f"
+$cmd = "schtasks /create /tn `"$TaskName`" /tr `"$RunnerBat`" /sc daily /st $Time /f"
 Write-Host "Executing: $cmd" -ForegroundColor Gray
 Invoke-Expression $cmd
 
