@@ -237,13 +237,18 @@ def sync_from_gdocs_cli(doc_id, config):
 
     return True, temp_md, temp_pdf if temp_pdf.exists() else None
 
-def process_and_save_lecture(markdown_content, doc_id=None, source_pdf=None):
+def process_and_save_lecture(markdown_content, doc_id=None, source_pdf=None, doc_meta=None):
     """Process frontmatter, normalize LaTeX, and save to docs/chapter_XX/."""
     meta, body = parse_frontmatter(markdown_content)
     clean_body = clean_latex_markdown(body)
 
+    if not meta or "chapter" not in meta:
+        fallback = extract_metadata_from_body(body, doc_meta)
+        fallback.update(meta)
+        meta = fallback
+
     chapter = int(meta.get("chapter", 1))
-    section = meta.get("section", "1.1")
+    section = str(meta.get("section", "1.1"))
     title = meta.get("title", f"Chapter_{chapter}_Section_{section}")
     
     # Standard file name
@@ -408,7 +413,7 @@ def run_sync():
         if success and md_file:
             with open(md_file, "r", encoding="utf-8") as f:
                 content = f.read()
-            name = process_and_save_lecture(content, doc_id=doc_id, source_pdf=pdf_file)
+            name = process_and_save_lecture(content, doc_id=doc_id, source_pdf=pdf_file, doc_meta=cdoc)
             if name:
                 synced_items.append(name)
                 progress = load_progress()

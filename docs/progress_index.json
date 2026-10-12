@@ -1,15 +1,15 @@
 {
-  "last_sync_time": "2026-10-12T17:02:08.644432",
+  "last_sync_time": "2026-10-12T17:00:00+08:00",
   "total_chapters": 1,
   "documents": {
     "1CxpOg81Hg58HKBeu8BNTwGQDPvAosu8ZfbTexmr7l9w": {
-      "title": "Ch01_Sec11_Chapter_1_Section_1.1",
+      "title": "Ch01_Sec02_大气的基础知识",
       "chapter": 1,
-      "section": "1.1",
-      "file_path": "docs/chapter_01/Ch01_Sec11_Chapter_1_Section_1.1.md",
-      "pdf_path": "pdf/Ch01_Sec11_Chapter_1_Section_1.1.pdf",
+      "section": "1.2",
+      "file_path": "docs/chapter_01/Ch01_Sec02_大气的基础知识.md",
+      "pdf_path": "pdf/Ch01_Sec02_大气的基础知识.pdf",
       "status": "completed",
-      "last_synced": "2026-10-12T17:02:08.644426",
+      "last_synced": "2026-10-12T17:00:00+08:00",
       "last_modified": "2026-10-12T07:11:49.876Z"
     }
   }
