@@ -79,24 +79,65 @@ def parse_frontmatter(content):
                 meta[k.strip()] = v.strip().strip("\"'")
     return meta, body
 
+def extract_metadata_from_body(body, doc_meta=None):
+    """Fallback metadata extractor when Google Docs has no YAML Frontmatter."""
+    meta = {}
+    doc_name = doc_meta.get("name", "") if doc_meta else ""
+    first_lines = "\n".join(body.splitlines()[:10])
+    combined_text = doc_name + "\n" + first_lines
+
+    # Detect chapter
+    ch_match = re.search(r"第\s*(\d+)\s*章|Ch(\d+)", combined_text, re.IGNORECASE)
+    if ch_match:
+        meta["chapter"] = int(ch_match.group(1) or ch_match.group(2))
+    else:
+        meta["chapter"] = 1
+
+    # Detect section
+    sec_match = re.search(r"(\d+\.\d+)", combined_text)
+    if sec_match:
+        meta["section"] = sec_match.group(1)
+    else:
+        meta["section"] = f"{meta['chapter']}.1"
+
+    # Detect title
+    title_match = re.search(r"(?:第\s*\d+\s*章.*?·\s*\d+\.\d+\s*|Ch\d+_Sec\d+_)([\u4e00-\u9fa5\w\s]+)", combined_text)
+    if title_match:
+        meta["title"] = title_match.group(1).split("（")[0].strip()
+    elif "大气" in doc_name:
+        clean = re.sub(r"^南京信息工程大学《大气物理学》精讲讲义[_\s]*", "", doc_name)
+        meta["title"] = clean.strip()
+    else:
+        meta["title"] = f"Chapter_{meta['chapter']}_Section_{meta['section']}"
+
+    meta["status"] = "completed"
+    meta["date"] = datetime.now().strftime("%Y-%m-%d")
+    return meta
+
 def clean_latex_markdown(content):
     """
     Clean artifacts produced by Google Docs export to ensure
     perfect rendering with MathJax3 and VitePress.
     """
-    # 1. Fix escaped underscores inside equations: $$... \_ ...$$ -> _
+    # 1. Clean HTML entity escapes
+    content = content.replace(r"\&lt;\&lt;", r"\ll ").replace(r"\&gt;\&gt;", r"\gg ")
+    content = content.replace(r"\&lt;", "<").replace(r"\&gt;", ">")
+    content = content.replace("&lt;", "<").replace("&gt;", ">")
+
+    # 2. Fix Google Docs unnecessary backslash escapes on markdown syntax
+    content = content.replace(r"\=", "=").replace(r"\[", "[").replace(r"\]", "]")
+    content = content.replace(r"\+", "+").replace(r"\-", "-")
+
+    # 3. Fix escaped underscores inside equations: $$... \_ ...$$ -> _
     def unescape_math_blocks(match):
         block = match.group(0)
-        # Unescape underscores and asterisks in math
         block = block.replace(r"\_", "_").replace(r"\*", "*")
         return block
 
-    # Match block equations $$...$$
     content = re.sub(r"\$\$(.*?)\$\$", unescape_math_blocks, content, flags=re.DOTALL)
-    # Match inline equations $...$
     content = re.sub(r"(?<!\$)\$(?!\$)(.*?)(?<!\$)\$(?!\$)", unescape_math_blocks, content)
 
-    # 2. Fix broken non-breaking spaces
+    # 4. Fix non-breaking spaces
     content = content.replace("\u00a0", " ")
 
     return content
@@ -182,8 +223,8 @@ def sync_from_gdocs_cli(doc_id, config):
     temp_pdf = temp_dir / f"{doc_id}.pdf"
 
     # Export Markdown
-    cmd_md = ["gdocs", "readonly", "export", doc_id, "--format", "md", "--output", str(temp_md)]
-    res_md = subprocess.run(cmd_md, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    cmd_md = f'gdocs readonly export {doc_id} --format md --output "{temp_md}"'
+    res_md = subprocess.run(cmd_md, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, shell=True, encoding="utf-8", errors="replace")
     if res_md.returncode != 0:
         logger.warning(f"gdocs CLI md export failed: {res_md.stderr.strip()}")
         return False, None, None
@@ -191,8 +232,8 @@ def sync_from_gdocs_cli(doc_id, config):
     # Export PDF if requested
     export_pdf = config.get("pdf", {}).get("export_pdf", True)
     if export_pdf:
-        cmd_pdf = ["gdocs", "readonly", "export", doc_id, "--format", "pdf", "--output", str(temp_pdf)]
-        subprocess.run(cmd_pdf, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        cmd_pdf = f'gdocs readonly export {doc_id} --format pdf --output "{temp_pdf}"'
+        subprocess.run(cmd_pdf, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, shell=True, encoding="utf-8", errors="replace")
 
     return True, temp_md, temp_pdf if temp_pdf.exists() else None
 
@@ -285,6 +326,46 @@ source_doc_id: {doc_id or meta.get('source_doc_id', '')}
 
     return filename
 
+def discover_cloud_google_docs():
+    """
+    Search Google Drive for lecture notes created by Gemini Spark.
+    Checks recent files and query keywords.
+    """
+    found_docs = {}
+
+    # 1. Search recent files on Google Drive
+    try:
+        cmd = "gdrive readonly recent --max 30 --json"
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, shell=True, encoding="utf-8", errors="replace")
+        if res.returncode == 0 and res.stdout.strip():
+            items = json.loads(res.stdout)
+            for item in items:
+                if item.get("mimeType") == "application/vnd.google-apps.document":
+                    name = item.get("name", "")
+                    if any(k in name for k in ["大气物理学", "大气", "Atmospheric", "Ch0", "Ch1", "讲义"]):
+                        doc_id = item.get("id")
+                        if doc_id:
+                            found_docs[doc_id] = item
+    except Exception as e:
+        logger.warning(f"Error checking recent files on Google Drive: {e}")
+
+    # 2. Search specific queries
+    for kw in ["大气物理学", "Atmospheric_Physics_Course"]:
+        try:
+            cmd = f'gdrive readonly search --name-contains "{kw}" --json'
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, shell=True, encoding="utf-8", errors="replace")
+            if res.returncode == 0 and res.stdout.strip():
+                items = json.loads(res.stdout)
+                for item in items:
+                    if item.get("mimeType") == "application/vnd.google-apps.document":
+                        doc_id = item.get("id")
+                        if doc_id and doc_id not in found_docs:
+                            found_docs[doc_id] = item
+        except Exception as e:
+            logger.warning(f"Error searching Google Drive for '{kw}': {e}")
+
+    return list(found_docs.values())
+
 def run_sync():
     """Main synchronization workflow."""
     logger.info("=== Starting Atmospheric Physics Study Sync ===")
@@ -292,7 +373,7 @@ def run_sync():
 
     synced_items = []
 
-    # Check local sync folder mode (if user uses Google Drive desktop client)
+    # 1. Check local sync folder mode (if user uses Google Drive desktop client)
     local_drive = config.get("google_drive", {}).get("local_sync_folder", "")
     if local_drive and os.path.exists(local_drive):
         logger.info(f"Scanning local Google Drive sync folder: {local_drive}")
@@ -306,18 +387,34 @@ def run_sync():
                     name = process_and_save_lecture(content)
                     synced_items.append(name)
 
-    # Check if a specific document is queued or known
-    # E.g. baseline document Ch01_Sec02
-    baseline_id = "1CxpOg81Hg58HKBeu8BNTwGQDPvAosu8ZfbTexmr7l9w"
+    # 2. Automatic Cloud Discovery from Google Docs / Google Drive
+    cloud_docs = discover_cloud_google_docs()
+    logger.info(f"Discovered {len(cloud_docs)} lecture document(s) on Google Drive.")
     progress = load_progress()
-    if baseline_id not in progress.get("documents", {}):
-        # Attempt CLI pull
-        success, md_file, pdf_file = sync_from_gdocs_cli(baseline_id, config)
+
+    for cdoc in cloud_docs:
+        doc_id = cdoc["id"]
+        doc_name = cdoc.get("name", "")
+        mod_time = cdoc.get("modifiedTime", "")
+
+        # Check if already synced and up to date
+        existing = progress.get("documents", {}).get(doc_id)
+        if existing and existing.get("last_modified") == mod_time:
+            logger.info(f"Document '{doc_name}' ({doc_id}) is up to date. Skipping.")
+            continue
+
+        logger.info(f"Pulling new or updated Google Doc from cloud: '{doc_name}' ({doc_id})...")
+        success, md_file, pdf_file = sync_from_gdocs_cli(doc_id, config)
         if success and md_file:
             with open(md_file, "r", encoding="utf-8") as f:
                 content = f.read()
-            name = process_and_save_lecture(content, doc_id=baseline_id, source_pdf=pdf_file)
-            synced_items.append(name)
+            name = process_and_save_lecture(content, doc_id=doc_id, source_pdf=pdf_file)
+            if name:
+                synced_items.append(name)
+                progress = load_progress()
+                if doc_id in progress.get("documents", {}):
+                    progress["documents"][doc_id]["last_modified"] = mod_time
+                    save_progress(progress)
 
     # Pre-publish Quality Gate: Audit all lecture notes
     from verify_lecture import verify_lecture_file
