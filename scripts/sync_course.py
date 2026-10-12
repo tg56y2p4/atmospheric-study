@@ -232,6 +232,30 @@ source_doc_id: {doc_id or meta.get('source_doc_id', '')}
         f.write(final_content)
     logger.info(f"Saved processed lecture note to {target_md}")
 
+    # --- Pre-Publish Integrity Verification ---
+    from verify_lecture import verify_lecture_file
+    report = verify_lecture_file(target_md)
+    if not report.is_valid:
+        logger.error(f"[QUALITY ALERT] Integrity check FAILED for {filename}!")
+        for err in report.errors:
+            logger.error(f"  * [ERROR] {err}")
+        quarantine = LOG_DIR / f"corrupted_{filename}"
+        shutil.copy2(target_md, quarantine)
+        logger.error(f"Quarantined suspicious file to {quarantine}. Aborting commit to prevent live site corruption.")
+        return None
+
+    if report.warnings:
+        for w in report.warnings:
+            logger.warning(f"[Quality Warning] {filename}: {w}")
+
+    logger.info(
+        f"[Quality OK] {filename} passed all checks: "
+        f"{report.stats.get('char_count', 0)} chars, "
+        f"{report.stats.get('block_equations_count', 0)} block equations, "
+        f"{report.stats.get('inline_equations_count', 0)} inline equations, "
+        f"{report.stats.get('table_count', 0)} tables."
+    )
+
     # Copy PDF if exists
     pdf_rel_path = ""
     if source_pdf and Path(source_pdf).exists():
@@ -295,6 +319,22 @@ def run_sync():
             name = process_and_save_lecture(content, doc_id=baseline_id, source_pdf=pdf_file)
             synced_items.append(name)
 
+    # Pre-publish Quality Gate: Audit all lecture notes
+    from verify_lecture import verify_lecture_file
+    all_lectures = list((ROOT_DIR / "docs").glob("chapter_*/*.md"))
+    has_critical_failure = False
+    for lec in all_lectures:
+        rep = verify_lecture_file(lec)
+        if not rep.is_valid:
+            has_critical_failure = True
+            logger.error(f"[Quality Gate] Lecture {lec.name} failed verification! Refusing to push.")
+            for err in rep.errors:
+                logger.error(f"  * {err}")
+
+    if has_critical_failure:
+        logger.error("Quality Gate: Aborting Git push because one or more files failed integrity check.")
+        return
+
     # Git Sync Step
     if config.get("git", {}).get("auto_commit", True):
         from git_sync import git_commit_and_push, has_changes
@@ -309,15 +349,45 @@ def run_sync():
 
     logger.info("=== Sync finished successfully ===")
 
+def audit_all_lectures():
+    """Audit all existing lectures in docs/chapter_*."""
+    from verify_lecture import verify_lecture_file
+    all_lectures = list((ROOT_DIR / "docs").glob("chapter_*/*.md"))
+    print("=" * 60)
+    print(f" 全量讲义内容完整性与质量体检 (共 {len(all_lectures)} 篇)")
+    print("=" * 60)
+    all_passed = True
+    for lec in sorted(all_lectures):
+        rep = verify_lecture_file(lec)
+        s = rep.summary()
+        status_tag = "[PASS]" if s["is_valid"] else "[FAIL]"
+        print(f"\n{status_tag} {lec.name}")
+        print(f"  - 字符/行数: {s['stats'].get('char_count', 0)} 字 / {s['stats'].get('line_count', 0)} 行")
+        print(f"  - 块级公式 ($$): {s['stats'].get('block_equations_count', 0)} | 行内公式 ($): {s['stats'].get('inline_equations_count', 0)}")
+        print(f"  - 表格: {s['stats'].get('table_count', 0)} 个 | 结构: H1={s['stats'].get('h1_count', 0)}, H2={s['stats'].get('h2_count', 0)}, H3={s['stats'].get('h3_count', 0)}")
+        if s["errors"]:
+            all_passed = False
+            for err in s["errors"]:
+                print(f"  * 错误: {err}")
+        if s["warnings"]:
+            for w in s["warnings"]:
+                print(f"  * 警告: {w}")
+    print("\n" + "=" * 60)
+    print("体检完成: " + ("全量讲义健康通过！" if all_passed else "存在质检不合格文件，已阻断发布！"))
+    print("=" * 60)
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Atmospheric Physics Sync Tool")
     parser.add_argument("--doc-id", help="Manually sync a specific Google Doc ID")
     parser.add_argument("--file", help="Manually ingest a local markdown file")
+    parser.add_argument("--check", action="store_true", help="Audit all local lecture notes")
     args = parser.parse_args()
 
     config = load_config()
 
-    if args.file:
+    if args.check:
+        audit_all_lectures()
+    elif args.file:
         logger.info(f"Manually ingesting file: {args.file}")
         with open(args.file, "r", encoding="utf-8") as f:
             content = f.read()
